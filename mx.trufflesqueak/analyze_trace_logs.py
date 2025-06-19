@@ -194,7 +194,17 @@ def analyze_diffs(methods_from_1, methods_from_2):
         method_2 = None
         iter_in_2 = (method_2 for method_2 in methods_from_2 if method_2["id"] == method_1["id"])
         for i in range(0, occurences_for_method):
-          method_2 = next(iter_in_2)
+          method_2 = next(iter_in_2, None)
+          
+        if method_2 is None:
+            # There is no matching occurence of the method in the second trace anymore.
+            # (it occurs in the first trace more often than in the second trace in the specified tier)
+            logger.info("---")
+            logger.info(method_1["method"] + " (id=" + str(method_1["id"]) + ")")
+            logger.info("Compilation occurence: " + str(occurences_for_method) + ".")
+            logger.info("Compilation tier: " + str(method_1["compilation_tier"]))
+            logger.info("was not found anymore in the second trace")
+            continue
 
         code_size_diff = method_2["code_size"] - method_1["code_size"]
         compilation_time_diff = method_2["compilation_time_total"] - method_1["compilation_time_total"]
