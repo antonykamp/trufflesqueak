@@ -108,10 +108,10 @@ invalidated_methods_1 = [method for method in trace_log_1 if method["compilation
 invalidated_methods_2 = [method for method in trace_log_2 if method["compilation_state"] == "invalidated"]
 
 # Indicate new methods getting compiled
-new_compiled_methods = [method for method in compiled_methods_2 if method["id"] not in list(map(lambda method: method["id"], compiled_methods_1))]
+new_compiled_methods = [method for method in compiled_methods_2 if method["method"] not in list(map(lambda method: method["method"], compiled_methods_1))]
 
 # Indicate methods no longer getting compiled
-no_longer_compiled = [method for method in compiled_methods_1 if method["id"] not in list(map(lambda method: method["id"], compiled_methods_2))]
+no_longer_compiled = [method for method in compiled_methods_1 if method["method"] not in list(map(lambda method: method["method"], compiled_methods_2))]
 
 #####
 
@@ -123,39 +123,38 @@ if args.positional_shifts:
     logger.info("# Positional shifts in compilation traces\n")
     seen_indexes_in_2 = {}
     for index_1, method in enumerate(compiled_methods_1):
-      if method["id"] in list(map(lambda method: method["id"], no_longer_compiled)):
+      if method["method"] in list(map(lambda method: method["method"], no_longer_compiled)):
         logger.info("---")
-        logger.info(method["method"] + " (id=" + str(method["id"]) + ")")
+        logger.info(method["method"])
         logger.info("is no longer compiled in the second trace")
         continue
-      if method["id"] in list(map(lambda method: method["id"], new_compiled_methods)):
+      if method["method"] in list(map(lambda method: method["method"], new_compiled_methods)):
         logger.info("---")
-        logger.info(method["method"] + " (id=" + str(method["id"]) + ")")
+        logger.info(method["method"])
         logger.info("is a new compilation target in the second trace")
         continue
 
-      seen_indexes_in_2_for_method = seen_indexes_in_2[method["id"]] if method["id"] in seen_indexes_in_2 else []
+      seen_indexes_in_2_for_method = seen_indexes_in_2[method["method"]] if method["method"] in seen_indexes_in_2 else []
       # Use the last seen index_2
       start = seen_indexes_in_2_for_method[-1 ] if len(seen_indexes_in_2_for_method) > 0 else -1
       try:
-        index_2 = list(map(lambda method: method["id"], compiled_methods_2)).index(method["id"], start + 1)
+        index_2 = list(map(lambda method: method["method"], compiled_methods_2)).index(method["method"], start + 1)
       except ValueError:
         continue
       # Mark this index in 2 as seen in order to avoid false comparisons of e.g. the second occurence in trace 1 with the first in trace 2
       seen_indexes_in_2_for_method.append(index_2)
-      seen_indexes_in_2[method["id"]] = seen_indexes_in_2_for_method
+      seen_indexes_in_2[method["method"]] = seen_indexes_in_2_for_method
 
       shift = index_1 - index_2
       if shift != 0:
         logger.info("---")
-        logger.info(method["method"] + " (id=" + str(method["id"]) + ")")
+        logger.info(method["method"])
         logger.info("Compilation occurrence: " + str(len(seen_indexes_in_2_for_method)) + ".")
         logger.info("Compilation tier: " + str(method["compilation_tier"]))
         logger.info("Positional shift: " + str(shift))
         
         # Store for csv writing
         shift_list.append({ 
-          "method_id": method["id"], 
           "method_name": method["method"],
           "compilation_occurence": str(len(seen_indexes_in_2_for_method)) + ".",
           "compilation_tier": method["compilation_tier"],
@@ -166,9 +165,9 @@ if args.positional_shifts:
     shifts_output_path = args.outputDir + "/shifts.csv" if args.outputDir is not None else "shifts.csv"
     with open(shifts_output_path, 'w+', newline='') as shifts_csv_file:
         writer = csv.writer(shifts_csv_file)
-        writer.writerow(['method_id', 'method_name', 'compilation_occurence', 'compilation_tier','positional_shift'])
+        writer.writerow(['method_name', 'compilation_occurence', 'compilation_tier','positional_shift'])
         for method in shift_list:
-            writer.writerow([method["method_id"], method["method_name"], method["compilation_occurence"], method["compilation_tier"], method["positional_shift"]])
+            writer.writerow([method["method_name"], method["compilation_occurence"], method["compilation_tier"], method["positional_shift"]])
 else:
     logger.info("# Analysis of positional shifts skipped")
 
@@ -187,12 +186,12 @@ diff_list = []
 def analyze_diffs(methods_from_1, methods_from_2):
     occurences_dict = {}
     for method_1 in methods_from_1:
-      occurences_for_method = (occurences_dict[method_1["id"]] if method_1["id"] in occurences_dict else 0) + 1
-      occurences_dict[method_1["id"]] = occurences_for_method
+      occurences_for_method = (occurences_dict[method_1["method"]] if method_1["method"] in occurences_dict else 0) + 1
+      occurences_dict[method_1["method"]] = occurences_for_method
 
-      if method_1["id"] in list(map(lambda method : method["id"], methods_from_2)):
+      if method_1["method"] in list(map(lambda method : method["method"], methods_from_2)):
         method_2 = None
-        iter_in_2 = (method_2 for method_2 in methods_from_2 if method_2["id"] == method_1["id"])
+        iter_in_2 = (method_2 for method_2 in methods_from_2 if method_2["method"] == method_1["method"])
         for i in range(0, occurences_for_method):
           method_2 = next(iter_in_2, None)
           
@@ -200,7 +199,7 @@ def analyze_diffs(methods_from_1, methods_from_2):
             # There is no matching occurence of the method in the second trace anymore.
             # (it occurs in the first trace more often than in the second trace in the specified tier)
             logger.info("---")
-            logger.info(method_1["method"] + " (id=" + str(method_1["id"]) + ")")
+            logger.info(method_1["method"])
             logger.info("Compilation occurence: " + str(occurences_for_method) + ".")
             logger.info("Compilation tier: " + str(method_1["compilation_tier"]))
             logger.info("was not found anymore in the second trace")
@@ -214,13 +213,12 @@ def analyze_diffs(methods_from_1, methods_from_2):
 
         if code_size_diff != 0 or compilation_time_diff != 0 or AST_size_diff != 0 or inlined_diff != 0 or not_inlined_diff != 0:
           logger.info("---")
-          logger.info(method_1["method"] + " (id=" + str(method_1["id"]) + ")")
+          logger.info(method_1["method"])
           logger.info("Compilation occurence: " + str(occurences_for_method) + ".")
           logger.info("Compilation tier: " + str(method_1["compilation_tier"]))
           
           # Store for csv writing
           diff_list.append({ 
-            "method_id": method_1["id"], 
             "method_name": method_1["method"],
             "compilation_occurence": str(occurences_for_method) + ".",
             "compilation_tier": method_1["compilation_tier"],
@@ -242,7 +240,7 @@ def analyze_diffs(methods_from_1, methods_from_2):
           logger.info("Compilation time difference: " + str(compilation_time_diff) + "ms")
       else:
         logger.info("---")
-        logger.info(method_1["method"] + " (id=" + str(method_1["id"]) + ")")
+        logger.info(method_1["method"])
         logger.info("Compilation occurence: " + str(occurences_for_method) + ".")
         logger.info("Compilation tier: " + str(method_1["compilation_tier"]))
         logger.info("is no longer compiled in this tier")
@@ -256,9 +254,9 @@ analyze_diffs(compiled_methods_1_tier_2, compiled_methods_2_tier_2)
 diffs_output_path = args.outputDir + "/diffs.csv" if args.outputDir is not None else "diffs.csv"
 with open(diffs_output_path, 'w+', newline='') as diff_csv_file:
     writer = csv.writer(diff_csv_file)
-    writer.writerow(['method_id', 'method_name', 'compilation_occurence', 'compilation_tier','code_size_diff','AST_size_diff','inlined_diff','not_inlined_diff','compilation_time_diff'])
+    writer.writerow(['method_name', 'compilation_occurence', 'compilation_tier','code_size_diff','AST_size_diff','inlined_diff','not_inlined_diff','compilation_time_diff'])
     for method in diff_list:
-        writer.writerow([method["method_id"], method["method_name"], method["compilation_occurence"], method["compilation_tier"], method["code_size_diff"], method["AST_size_diff"], method["inlined_diff"], method["not_inlined_diff"], method["compilation_time_diff"]])
+        writer.writerow([method["method_name"], method["compilation_occurence"], method["compilation_tier"], method["code_size_diff"], method["AST_size_diff"], method["inlined_diff"], method["not_inlined_diff"], method["compilation_time_diff"]])
 
 # OUTPUT AS CSV (based on specified metric)
 relevant_metric_columns=[] 
@@ -282,7 +280,7 @@ if args.metric is not None:
         filtered_diff_list = [method_diff for method_diff in diff_list if method_diff['inlined_diff'] != 0 or method_diff['not_inlined_diff'] != 0]
         specific_diff_list = sorted(filtered_diff_list, key=lambda method_diff : (method_diff['inlined_diff'], method_diff['not_inlined_diff']))
 
-    common_csv_columns = ['method_id', 'method_name', 'compilation_occurence', 'compilation_tier']
+    common_csv_columns = ['method_name', 'compilation_occurence', 'compilation_tier']
     diffs_output_path = args.outputDir + f"/diffs_{args.metric}.csv" if args.outputDir is not None else f"diffs_{args.metric}.csv"
     with open(diffs_output_path, 'w+', newline='') as diff_csv_file:
         writer = csv.writer(diff_csv_file)
@@ -309,7 +307,7 @@ def get_color(line):
         # Only look for actual compilations (no deopts or invalidations
         return default 
     
-    if method["id"] not in list(map(lambda method_diff : method_diff["method_id"], diff_list)):
+    if method["method"] not in list(map(lambda method_diff : method_diff["method_name"], diff_list)):
         # No diffs at all --> no special color
         return default
         
@@ -317,13 +315,13 @@ def get_color(line):
     # Only this way, we can correctly color the rows based on their diffs.
     occurence_of_method_relative_to_tier = None
     if method["compilation_tier"] == 1:
-        occurences_for_method = (compiled_methods_tier_1_count[method["id"]] if method["id"] in compiled_methods_tier_1_count else 0) + 1
-        compiled_methods_tier_1_count[method["id"]] = occurences_for_method
+        occurences_for_method = (compiled_methods_tier_1_count[method["method"]] if method["method"] in compiled_methods_tier_1_count else 0) + 1
+        compiled_methods_tier_1_count[method["method"]] = occurences_for_method
     elif method["compilation_tier"] == 2:
-        occurences_for_method = (compiled_methods_tier_2_count[method["id"]] if method["id"] in compiled_methods_tier_2_count else 0) + 1
-        compiled_methods_tier_2_count[method["id"]] = occurences_for_method
+        occurences_for_method = (compiled_methods_tier_2_count[method["method"]] if method["method"] in compiled_methods_tier_2_count else 0) + 1
+        compiled_methods_tier_2_count[method["method"]] = occurences_for_method
        
-    match_in_diff_list = next((x for x in diff_list if x["compilation_tier"] == method["compilation_tier"] and x["method_id"] == method["id"] and x["compilation_occurence"] == (str(occurences_for_method) + ".")), None)
+    match_in_diff_list = next((x for x in diff_list if x["compilation_tier"] == method["compilation_tier"] and x["method_name"] == method["method"] and x["compilation_occurence"] == (str(occurences_for_method) + ".")), None)
     
     if match_in_diff_list == None:
         # No match 
@@ -387,7 +385,7 @@ def get_font_weight(line):
         # Only look for actual compilations (no deopts or invalidations)
         return default 
     
-    if method["id"] not in list(map(lambda method : method["id"], new_compiled_methods)):
+    if method["method"] not in list(map(lambda method : method["method"], new_compiled_methods)):
         # No new method -> normal font weight
         return default   
 
