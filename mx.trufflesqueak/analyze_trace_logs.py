@@ -24,6 +24,9 @@ argparser.add_argument('-p', '--positional_shifts', action='store_true', help=''
     Optional flag which enables analysis of positional shifts of methods between traces.
     Beware that positions are influenced by whether compilation takes place in only the main thread/multiple threads are used.
 ''')
+argparser.add_argument('-s', '--summary', action='store_true', help='''
+    Optional flag which enables analysis of summary statistics between traces.
+''')
 
 args = argparser.parse_args()
 
@@ -107,14 +110,41 @@ def read_and_parse_compilation_statistics(filename):
 
     return result
 
-node_summary_1 = read_and_parse_node_summary(args.log_file_compare_base)
-node_summary_2 = read_and_parse_node_summary(args.log_file_compare_target)
+# Analyze diffs of summary statistics and output as csv
+if args.summary:
+    node_summary_1 = read_and_parse_node_summary(args.log_file_compare_base)
+    node_summary_2 = read_and_parse_node_summary(args.log_file_compare_target)
 
-total_compilation_count_1 = read_and_parse_total_compilation_count(args.log_file_compare_base)
-total_compilation_count_2 = read_and_parse_total_compilation_count(args.log_file_compare_target)
+    total_compilation_count_1 = read_and_parse_total_compilation_count(args.log_file_compare_base)
+    total_compilation_count_2 = read_and_parse_total_compilation_count(args.log_file_compare_target)
 
-compilation_summary_1 = read_and_parse_compilation_statistics(args.log_file_compare_base)
-compilation_summary_2 = read_and_parse_compilation_statistics(args.log_file_compare_target)
+    compilation_summary_1 = read_and_parse_compilation_statistics(args.log_file_compare_base)
+    compilation_summary_2 = read_and_parse_compilation_statistics(args.log_file_compare_target)
+
+    # OUTPUT AS CSV
+    summary_diffs_output_path = args.outputDir + "/summary_diffs.csv" if args.outputDir is not None else "summary_diffs.csv"
+    with open(summary_diffs_output_path, 'w+', newline='') as summary_diffs_csv_file:
+        writer = csv.writer(summary_diffs_csv_file)
+        # Header
+        writer.writerow(['metric', 'value_in_base_file', 'value_in_target_file','diff'])
+        # Rows
+        writer.writerow(['total_compilation_count', total_compilation_count_1, total_compilation_count_2, total_compilation_count_2 - total_compilation_count_1])
+        writer.writerow(['AST_size_sum', node_summary_1["sum"], node_summary_2["sum"], node_summary_2["sum"] - node_summary_1["sum"]])
+
+        # Assume possible tiers are 1 and 2.
+        for tier in range(1, 3):
+            tier_present_in_1 = tier in list(compilation_summary_1.keys())
+            tier_present_in_2 = tier in list(compilation_summary_2.keys())
+
+            if tier_present_in_1 is False or tier_present_in_2 is False:
+                # Tier not present in one of traces -> skip comparison
+                continue
+            for metric in list(compilation_summary_1[tier].keys()):
+                writer.writerow([f'{metric} (tier {tier})', compilation_summary_1[tier][metric], compilation_summary_2[tier][metric], compilation_summary_2[tier][metric] - compilation_summary_1[tier][metric] ])
+else:
+    logger.info("# Analysis of summary statistics skipped")
+
+#####
 
 def parse_trace_line(line):
     result = {}
