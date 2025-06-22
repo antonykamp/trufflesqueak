@@ -38,15 +38,85 @@ else:
     ch.setLevel(logging.INFO)
     logger.addHandler(ch)
 
-# Read in files
-def read_trace_log_file(filename):
+def read_trace_lines(filename):
     # Possible lines used for deveopment and testing based on https://gist.github.com/TruffleSqueak-Bot/de67fec8ff3dc0b56837e30c85b88d94.
     # [engine] opt done   engine=1  id=613   AWFYJsonParser>>#startCapture                      |Tier 1|Time    10(   6+4   )ms|AST   17|Inlined   0Y   0N|IR    183/   219|CodeSize     767|Addr 0x7f071eaf3000|UTC 2025-05-18T08:07:25.292|Src n/a
     # [engine] opt inval. engine=1  id=629   AWFYVector>>#append:                                                                                                                                               |UTC 2025-05-18T08:07:25.241|Src n/a|Reason null
     # [engine] opt deopt  engine=1  id=629   AWFYVector>>#append:                               |                                                                                                               |UTC 2025-05-18T08:07:25.241|Src n/a
     return [ line for line in open(filename) if line.startswith('[engine]') and 'statistics' not in line and 'CodeAddress' not in line]
 
-def parse_line(line):
+def read_and_parse_total_compilation_count(filename):
+    #     Compilations                : 185
+    matching =  [line for line in open(filename) if line.strip().startswith('Compilations')]
+    if len(matching) == 0 or len(matching) > 1:
+        logger.error("Matched no or too many lines for total Compilations")
+        raise ValueError
+    re_match = re.search(r'Compilations\s+:\s+(\d+)', matching[0])
+    if re_match:
+        return int(re_match.group(1))
+    return None
+
+def read_and_parse_node_summary(filename):
+    #     Truffle node count          : count= 183, sum=     98687, min=      11, average=      539.27, max=    5574, maxTarget=AWFYBenchmark>>#innerBenchmarkLoop:
+    matching =  [line for line in open(filename) if 'Truffle node count' in line]
+    if len(matching) == 0 or len(matching) > 1:
+        logger.error("Matched no or too many Truffle node count lines")
+        raise ValueError
+
+    result = {}
+    re_match = re.search(r'sum=\s+(\d+),\s+min=\s+(\d+),\s+average=\s+(\d+\.\d+),\s+max=\s+(\d+)', matching[0])
+    if re_match:
+        result["sum"] = int(re_match.group(1))
+        result["min"] = int(re_match.group(2))
+        result["average"] = float(re_match.group(3))
+        result["max"] = int(re_match.group(4))
+    return result
+
+def read_and_parse_compilation_statistics(filename):
+    # Compilation Tier 1          :
+    #    [...]
+    #    Time for compilation (us)   : count= 119, sum=   1526184, min=    2310, average=    12825.08, max=  103281, maxTarget=AWFYJsonParser>>#readValue
+    #      [...]
+    #    [...]
+    #      Code size                 : count= 116, sum=    303260, min=     508, average=     2614.31, max=   18620, maxTarget=AWFYJsonParser>>#readValue
+    compilation_tier_lines =  [line for line in open(filename) if 'Compilation Tier' in line]
+    compilation_time_lines =  [line for line in open(filename) if 'Time for compilation (us)' in line]
+    code_size_lines =  [line for line in open(filename) if 'Code size' in line]
+
+    # Need for tier-specific parsing and sometimes e.g. only tier 2 compilation is present
+    tier_count = len(compilation_tier_lines)
+    result = {}
+    for i in range(0, tier_count):
+        result_for_tier = {}
+        compilation_time_match_for_tier = re.search(r'sum=\s+(\d+),\s+min=\s+(\d+),\s+average=\s+(\d+\.\d+),\s+max=\s+(\d+)', compilation_time_lines[i])
+        if compilation_time_match_for_tier:
+            result_for_tier["compilation_time_sum"] = int(compilation_time_match_for_tier.group(1))
+            result_for_tier["compilation_time_min"] = int(compilation_time_match_for_tier.group(2))
+            result_for_tier["compilation_time_average"] = float(compilation_time_match_for_tier.group(3))
+            result_for_tier["compilation_time_max"] = int(compilation_time_match_for_tier.group(4))
+
+        code_size_match_for_tier = re.search(r'sum=\s+(\d+),\s+min=\s+(\d+),\s+average=\s+(\d+\.\d+),\s+max=\s+(\d+)', code_size_lines[i])
+        if code_size_match_for_tier:
+            result_for_tier["code_size_sum"] = int(code_size_match_for_tier.group(1))
+            result_for_tier["code_size_min"] = int(code_size_match_for_tier.group(2))
+            result_for_tier["code_size_average"] = float(code_size_match_for_tier.group(3))
+            result_for_tier["code_size_max"] = int(code_size_match_for_tier.group(4))
+
+        tier = i + 1
+        result[tier] = result_for_tier
+
+    return result
+
+node_summary_1 = read_and_parse_node_summary(args.log_file_compare_base)
+node_summary_2 = read_and_parse_node_summary(args.log_file_compare_target)
+
+total_compilation_count_1 = read_and_parse_total_compilation_count(args.log_file_compare_base)
+total_compilation_count_2 = read_and_parse_total_compilation_count(args.log_file_compare_target)
+
+compilation_summary_1 = read_and_parse_compilation_statistics(args.log_file_compare_base)
+compilation_summary_2 = read_and_parse_compilation_statistics(args.log_file_compare_target)
+
+def parse_trace_line(line):
     result = {}
 
     # Extract ID and method
@@ -94,8 +164,8 @@ def parse_line(line):
         result["method_calls"] = int(inlining_match.group(1)) + int(inlining_match.group(2))
     return result
 
-trace_log_1 = list(map(parse_line, read_trace_log_file(args.log_file_compare_base)))
-trace_log_2 = list(map(parse_line, read_trace_log_file(args.log_file_compare_target)))
+trace_log_1 = list(map(parse_trace_line, read_trace_lines(args.log_file_compare_base)))
+trace_log_2 = list(map(parse_trace_line, read_trace_lines(args.log_file_compare_target)))
 
 #####
 
