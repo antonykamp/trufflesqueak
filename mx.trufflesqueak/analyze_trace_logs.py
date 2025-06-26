@@ -396,7 +396,7 @@ compiled_methods_tier_1_count = {}
 compiled_methods_tier_2_count = {}
 
 def get_color(line):
-    method = parse_line(line)
+    method = parse_trace_line(line)
     default = "white"  # default background
     
     if not (line.startswith('[engine]') and 'statistics' not in line and 'CodeAddress' not in line):
@@ -474,7 +474,7 @@ def get_color(line):
         # return default
         
 def get_font_weight(line):
-    method = parse_line(line)
+    method = parse_trace_line(line)
     default = "normal"  # default font weight
     
     if not (line.startswith('[engine]') and 'statistics' not in line and 'CodeAddress' not in line):
