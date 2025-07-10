@@ -520,9 +520,12 @@ def get_color_by_method_name(line):
     if not (line.startswith('[engine]') and 'statistics' not in line and 'CodeAddress' not in line):
         # No relevant line overall
         return default
-    if method["method"] == args.filter.strip():
-        # Line represents filter method name
+    if method["method"] == args.filter.strip() and method["compilation_state"] == "compiled":
+        # Line represents filter method name and a compilation
         return "lightgreen"
+    if method["method"] == args.filter.strip() and method["compilation_state"] != "compiled":
+        # Line represents filter method name and a deoptimization or invalidation
+        return "orangered"
     return default
 
 def line_to_html_by_method_name(line):
