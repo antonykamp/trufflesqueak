@@ -554,6 +554,59 @@ if args.metric is not None:
 else:
    logger.info("\n # Colorization of target logfile skipped as no metric was specified\n")
 
+#####
+
+# Filter method related stuff
+
+def count_occurences_of_filtered_method(trace_log):
+    total_occurences = 0
+    compilation_occurences_tier_1 = 0
+    compilation_occurences_tier_2 = 0
+    # Invalidations and deopts have no tier information
+    deopt_occurences = 0
+    inval_occurences = 0
+
+    for matching_method in [method for method in trace_log if method["method"] == args.filter.strip()]:
+        total_occurences += 1
+
+        if matching_method["compilation_state"] == "compiled" and matching_method["compilation_tier"] == 1:
+            compilation_occurences_tier_1 += 1
+        if matching_method["compilation_state"] == "compiled" and matching_method["compilation_tier"] == 2:
+            compilation_occurences_tier_2 += 1
+        if matching_method["compilation_state"] == "invalidated":
+            inval_occurences += 1
+        if matching_method["compilation_state"] == "deoptimized":
+            deopt_occurences += 1
+
+    return {
+        "total_occurences": total_occurences,
+        "total_compilations": compilation_occurences_tier_1 + compilation_occurences_tier_2,
+        "compilation_occurences_tier_1": compilation_occurences_tier_1,
+        "compilation_occurences_tier_2": compilation_occurences_tier_2,
+        "total_deopts": deopt_occurences,
+        "total_invalidations": inval_occurences,
+    }
+
+
+# Gather answers regarding the filtered method:
+# How many times this method occured in total?
+# How many times was this method compiled/deoptimized/invalidated in total and for compilation also per tier?
+# How did these metrics change between traces?
+def gather_and_output_filtered_method_counts(safe_filter_name):
+    counts_in_trace_log_1 = count_occurences_of_filtered_method(trace_log_1)
+    counts_in_trace_log_2 = count_occurences_of_filtered_method(trace_log_2)
+
+    count_output_path = args.outputDir + f'/analysis_{safe_filter_name}.csv' if args.outputDir is not None else f'analysis_{safe_filter_name}.csv'
+    with open(count_output_path, "w+", newline='') as count_csv_file:
+        writer = csv.writer(count_csv_file)
+        writer.writerow([args.filter.strip(), 'value_in_base', 'value_in_target_file', 'diff'])
+        writer.writerow(['total occurrences', counts_in_trace_log_1["total_occurences"], counts_in_trace_log_2["total_occurences"], counts_in_trace_log_2["total_occurences"] - counts_in_trace_log_1["total_occurences"]])
+        writer.writerow(['total compilations', counts_in_trace_log_1["total_compilations"], counts_in_trace_log_2["total_compilations"], counts_in_trace_log_2["total_compilations"] - counts_in_trace_log_1["total_compilations"]])
+        writer.writerow(['total compilations (tier 1)', counts_in_trace_log_1["compilation_occurences_tier_1"], counts_in_trace_log_2["compilation_occurences_tier_1"], counts_in_trace_log_2["compilation_occurences_tier_1"] - counts_in_trace_log_1["compilation_occurences_tier_1"]])
+        writer.writerow(['total compilations (tier 2)', counts_in_trace_log_1["compilation_occurences_tier_2"], counts_in_trace_log_2["compilation_occurences_tier_2"], counts_in_trace_log_2["compilation_occurences_tier_2"] - counts_in_trace_log_1["compilation_occurences_tier_2"]])
+        writer.writerow(['total deopts', counts_in_trace_log_1["total_deopts"], counts_in_trace_log_2["total_deopts"], counts_in_trace_log_2["total_deopts"] - counts_in_trace_log_1["total_deopts"]])
+        writer.writerow(['total invalidations', counts_in_trace_log_1["total_invalidations"], counts_in_trace_log_2["total_invalidations"], counts_in_trace_log_2["total_invalidations"] - counts_in_trace_log_1["total_invalidations"]])
+
 if args.filter is not None:
    # For path building replace ":" and ">>" in method names (avoid file system errors)
    safe_filter_name = args.filter.replace(">>", "").replace(":", "")
@@ -567,5 +620,7 @@ if args.filter is not None:
    target_output_path = args.outputDir + f'/target_log_colored_by_{safe_filter_name}.html' if args.outputDir is not None else f'target_log_colored_by_{safe_filter_name}.html'
    target_html_title = f"Target compilation trace colored by method {args.filter}"
    convert_log_to_html(args.log_file_compare_target, target_output_path, line_to_html_by_method_name, target_html_title)
+
+   gather_and_output_filtered_method_counts(safe_filter_name)
 else:
-   logger.info("\n # Colorization of logfiles based on method name filter skipped as no filter was specified\n")
+   logger.info("\n # Analysis of filtered method skipped as no filter was specified\n")
