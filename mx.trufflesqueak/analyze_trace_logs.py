@@ -17,6 +17,9 @@ argparser.add_argument('-o', '--outputDir', help='''
     Optional path to an output directory. Any content in previously dumped files is overwritten.
     If not present, then stdout is used for log output and the directory of this script is used for file outputs.'
 ''')
+argparser.add_argument('-d', '--diffs', action='store_true', help='''
+    Optional flag which enables output of all diffs between matching occurrences between traces.
+''')
 argparser.add_argument('-m', '--metric', choices=['AST_size', 'code_size', 'inlining', 'compilation_time'], help='''
     Optional specification of a special metric that results in a file that explicitly sorts methods by the metric.
 ''')
@@ -351,12 +354,15 @@ logger.info("\n# Diffs in metrics (Tier 2)\n")
 analyze_diffs(compiled_methods_1_tier_2, compiled_methods_2_tier_2)
     
 # OUTPUT AS CSV (all diffs)
-diffs_output_path = args.outputDir + "/diffs.csv" if args.outputDir is not None else "diffs.csv"
-with open(diffs_output_path, 'w+', newline='') as diff_csv_file:
-    writer = csv.writer(diff_csv_file)
-    writer.writerow(['method_name', 'compilation_occurence', 'compilation_tier','code_size_diff','AST_size_diff','inlined_diff','not_inlined_diff','compilation_time_diff'])
-    for method in diff_list:
-        writer.writerow([method["method_name"], method["compilation_occurence"], method["compilation_tier"], method["code_size_diff"], method["AST_size_diff"], method["inlined_diff"], method["not_inlined_diff"], method["compilation_time_diff"]])
+if args.diffs:
+    diffs_output_path = args.outputDir + "/diffs.csv" if args.outputDir is not None else "diffs.csv"
+    with open(diffs_output_path, 'w+', newline='') as diff_csv_file:
+        writer = csv.writer(diff_csv_file)
+        writer.writerow(['method_name', 'compilation_occurence', 'compilation_tier','code_size_diff','AST_size_diff','inlined_diff','not_inlined_diff','compilation_time_diff'])
+        for method in diff_list:
+            writer.writerow([method["method_name"], method["compilation_occurence"], method["compilation_tier"], method["code_size_diff"], method["AST_size_diff"], method["inlined_diff"], method["not_inlined_diff"], method["compilation_time_diff"]])
+else:
+   logger.info("\n # Output of all diffs skipped\n")
 
 # OUTPUT AS CSV (based on specified metric)
 relevant_metric_columns=[] 
