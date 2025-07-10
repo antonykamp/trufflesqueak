@@ -30,6 +30,11 @@ argparser.add_argument('-p', '--positional_shifts', action='store_true', help=''
 argparser.add_argument('-s', '--summary', action='store_true', help='''
     Optional flag which enables analysis of summary statistics between traces.
 ''')
+argparser.add_argument('-f', '--filter', help='''
+    Optional method name to filter the log files for.
+    Note that the filter does not apply to the metric gathering, rather it creates separate artifacts
+    that are filtered down to this method.
+''')
 
 args = argparser.parse_args()
 
@@ -401,7 +406,7 @@ if args.metric is not None:
 compiled_methods_tier_1_count = {}
 compiled_methods_tier_2_count = {}
 
-def get_color(line):
+def get_color_by_metric(line):
     method = parse_trace_line(line)
     default = "white"  # default background
     
@@ -419,7 +424,6 @@ def get_color(line):
         
     # While reading in line by line for coloring, we need to keep track of the occurence count (relative to tier).
     # Only this way, we can correctly color the rows based on their diffs.
-    occurence_of_method_relative_to_tier = None
     if method["compilation_tier"] == 1:
         occurences_for_method = (compiled_methods_tier_1_count[method["method"]] if method["method"] in compiled_methods_tier_1_count else 0) + 1
         compiled_methods_tier_1_count[method["method"]] = occurences_for_method
@@ -497,23 +501,42 @@ def get_font_weight(line):
 
     # New method -> mark as bold
     return "bold"
-        
-def line_to_html(line):
-    color = get_color(line)
+
+def _line_to_html(line, color):
     font_weight = get_font_weight(line)
     # Escape HTML special characters if needed
     safe_line = re.sub('(?<!>)>', '&gt;', line.replace("&", "&amp;").replace("<", "&lt;"))
     # Special handling for ">" as Squeak method names contain ">>"
     return f'<div style="background-color:{color}; font-weight: {font_weight}; font-family: monospace; width: max-content;white-space: pre;">{safe_line}</div>'
 
-def convert_new_log_to_html(log_path, output_path):
+def line_to_html_by_metric(line):
+    color = get_color_by_metric(line)
+    return _line_to_html(line, color)
+
+def get_color_by_method_name(line):
+    method = parse_trace_line(line)
+    default = "white"  # default background
+
+    if not (line.startswith('[engine]') and 'statistics' not in line and 'CodeAddress' not in line):
+        # No relevant line overall
+        return default
+    if method["method"] == args.filter.strip():
+        # Line represents filter method name
+        return "lightgreen"
+    return default
+
+def line_to_html_by_method_name(line):
+    color = get_color_by_method_name(line)
+    return _line_to_html(line, color)
+
+def convert_log_to_html(log_path, output_path, converter_function, html_title):
     with open(log_path, "r") as f:
         lines = f.readlines()
 
-    html_lines = [line_to_html(line) for line in lines]
+    html_lines = [converter_function(line) for line in lines]
 
     html_content = (
-        f"<html lang='en'><head><title>Target compilation trace colored by {args.metric}</title></head><body>\n"
+        f"<html lang='en'><head><title>{html_title}</title></head><body>\n"
         + "\n".join(html_lines) +
         "\n</body></html>"
     )
@@ -523,6 +546,23 @@ def convert_new_log_to_html(log_path, output_path):
 
 if args.metric is not None:
    output_path = args.outputDir + f'/target_log_colored_by_{args.metric}.html' if args.outputDir is not None else f'target_log_colored_by_{args.metric}.html'
-   convert_new_log_to_html(args.log_file_compare_target, output_path)
+   html_title = f"Target compilation trace colored by {args.metric}"
+   convert_log_to_html(args.log_file_compare_target, output_path, line_to_html_by_metric, html_title)
 else:
    logger.info("\n # Colorization of target logfile skipped as no metric was specified\n")
+
+if args.filter is not None:
+   # For path building replace ":" and ">>" in method names (avoid file system errors)
+   safe_filter_name = args.filter.replace(">>", "").replace(":", "")
+
+    # Color base log by method name filter
+   base_output_path = args.outputDir + f'/base_log_colored_by_{safe_filter_name}.html' if args.outputDir is not None else f'base_log_colored_by_{safe_filter_name}.html'
+   base_html_title = f"Base compilation trace colored by method {args.filter}"
+   convert_log_to_html(args.log_file_compare_base, base_output_path, line_to_html_by_method_name, base_html_title)
+
+   # Color target log by method name filter
+   target_output_path = args.outputDir + f'/target_log_colored_by_{safe_filter_name}.html' if args.outputDir is not None else f'target_log_colored_by_{safe_filter_name}.html'
+   target_html_title = f"Target compilation trace colored by method {args.filter}"
+   convert_log_to_html(args.log_file_compare_target, target_output_path, line_to_html_by_method_name, target_html_title)
+else:
+   logger.info("\n # Colorization of logfiles based on method name filter skipped as no filter was specified\n")
