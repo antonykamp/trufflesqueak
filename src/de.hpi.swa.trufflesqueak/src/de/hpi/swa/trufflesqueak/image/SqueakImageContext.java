@@ -12,6 +12,7 @@ import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.oracle.truffle.api.Assumption;
 import com.oracle.truffle.api.CompilerAsserts;
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
@@ -29,7 +30,11 @@ import com.oracle.truffle.api.nodes.ExplodeLoop;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.profiles.InlinedConditionProfile;
 import com.oracle.truffle.api.source.Source;
+import com.oracle.truffle.api.utilities.CyclicAssumption;
 
+import com.oracle.truffle.api.strings.AbstractTruffleString;
+import com.oracle.truffle.api.strings.MutableTruffleString;
+import com.oracle.truffle.api.strings.TruffleString;
 import de.hpi.swa.trufflesqueak.SqueakImage;
 import de.hpi.swa.trufflesqueak.SqueakLanguage;
 import de.hpi.swa.trufflesqueak.SqueakOptions.SqueakContextOptions;
@@ -118,6 +123,7 @@ public final class SqueakImageContext {
     @CompilationFinal public ClassObject smallFloatClass;
     @CompilationFinal private ClassObject byteSymbolClass;
     @CompilationFinal private ClassObject foreignObjectClass;
+    private final CyclicAssumption foreignObjectClassStable = new CyclicAssumption("ForeignObjectClassStable assumption");
     @CompilationFinal private ClassObject linkedListClass;
 
     public final ArrayObject specialObjectsArray = new ArrayObject();
@@ -142,8 +148,8 @@ public final class SqueakImageContext {
     private String imagePath;
     @CompilationFinal public int imageFormat;
     private final TruffleFile homePath;
-    @CompilationFinal(dimensions = 1) private byte[] resourcesDirectoryBytes;
-    @CompilationFinal(dimensions = 1) private byte[] resourcesPathBytes;
+    private String resourcesDirectoryBytes;
+    private String resourcesPath;
     private final boolean isHeadless;
     public final SqueakContextOptions options;
     private final SqueakSystemAttributes systemAttributes = new SqueakSystemAttributes(this);
@@ -574,12 +580,12 @@ public final class SqueakImageContext {
 
     public NativeObject getResourcesDirectory() {
         ensureResourcesDirectoryAndPathInitialized();
-        return NativeObject.newNativeBytes(this, byteStringClass, resourcesDirectoryBytes.clone());
+        return NativeObject.newNativeByteStringUncached(this, resourcesDirectoryBytes);
     }
 
     public NativeObject getResourcesPath() {
         ensureResourcesDirectoryAndPathInitialized();
-        return NativeObject.newNativeBytes(this, byteStringClass, resourcesPathBytes.clone());
+        return NativeObject.newNativeByteStringUncached(this, resourcesPath);
     }
 
     private void ensureResourcesDirectoryAndPathInitialized() {
@@ -595,8 +601,8 @@ public final class SqueakImageContext {
                     throw SqueakException.create("`parent` should not be `null`.");
                 }
             }
-            resourcesDirectoryBytes = MiscUtils.stringToBytes(path.getAbsoluteFile().getPath());
-            resourcesPathBytes = MiscUtils.stringToBytes(path.getAbsoluteFile().getPath() + env.getFileNameSeparator());
+            resourcesDirectoryBytes = path.getAbsoluteFile().getPath();
+            resourcesPath = path.getAbsoluteFile().getPath() + env.getFileNameSeparator();
         }
     }
 
@@ -659,14 +665,14 @@ public final class SqueakImageContext {
         return foreignObjectClass;
     }
 
+    public Assumption getForeignObjectClassStableAssumption() {
+        return foreignObjectClassStable.getAssumption();
+    }
+
     public boolean setForeignObjectClass(final ClassObject classObject) {
-        if (foreignObjectClass == null) {
-            CompilerDirectives.transferToInterpreterAndInvalidate();
-            foreignObjectClass = classObject;
-            return true;
-        } else {
-            return false;
-        }
+        foreignObjectClassStable.invalidate("New foreign object class");
+        foreignObjectClass = classObject;
+        return true;
     }
 
     public ClassObject getLinkedListClass() {
@@ -1018,12 +1024,24 @@ public final class SqueakImageContext {
         return numerator / denominator;
     }
 
-    public NativeObject asByteArray(final byte[] bytes) {
-        return NativeObject.newNativeBytes(this, byteArrayClass, bytes);
+    public NativeObject asByteArray(final byte[] bytes, final MutableTruffleString.FromByteArrayNode node) {
+        return NativeObject.newNativeBytes(this, byteArrayClass, bytes, node);
     }
 
     public NativeObject asByteString(final String value) {
-        return NativeObject.newNativeBytes(this, byteStringClass, MiscUtils.stringToBytes(value));
+        return NativeObject.newNativeByteStringUncached(this, value);
+    }
+
+    public NativeObject asByteString(final String value, final TruffleString.FromJavaStringNode javaStringNode, final MutableTruffleString.AsMutableTruffleStringNode mutableTruffleStringNode) {
+        return NativeObject.newNativeByteString(this, value, javaStringNode, mutableTruffleStringNode);
+    }
+
+    public NativeObject asByteString(final AbstractTruffleString value) {
+        return NativeObject.newNativeByteStringUncached(this, value);
+    }
+
+    public NativeObject asByteString(final AbstractTruffleString value, final MutableTruffleString.AsMutableTruffleStringNode node) {
+        return NativeObject.newNativeByteString(this, value, node);
     }
 
     public NativeObject asByteSymbol(final String value) {
@@ -1035,8 +1053,24 @@ public final class SqueakImageContext {
         return NativeObject.newNativeInts(this, getWideStringClass(), MiscUtils.stringToCodePointsArray(value));
     }
 
+    public NativeObject asWideString(final AbstractTruffleString value) {
+        return NativeObject.newNativeInts(this, getWideStringClass(),MiscUtils.stringToCodePointsArray(value.toJavaStringUncached()));
+    }
+
     public NativeObject asString(final String value, final InlinedConditionProfile wideStringProfile, final Node node) {
         return wideStringProfile.profile(node, NativeObject.needsWideString(value)) ? asWideString(value) : asByteString(value);
+    }
+
+    public NativeObject asString(final AbstractTruffleString value, final InlinedConditionProfile wideStringProfile, final Node node) {
+        return wideStringProfile.profile(node, NativeObject.needsWideString(value)) ? asWideString(value) : asByteString(value);
+    }
+
+    public NativeObject asString(final String value, final InlinedConditionProfile wideStringProfile, final Node node, final TruffleString.FromJavaStringNode javaStringNode, final MutableTruffleString.AsMutableTruffleStringNode mutableTruffleStringNode) {
+        return wideStringProfile.profile(node, NativeObject.needsWideString(value)) ? asWideString(value) : asByteString(value, javaStringNode, mutableTruffleStringNode);
+    }
+
+    public NativeObject asString(final AbstractTruffleString value, final InlinedConditionProfile wideStringProfile, final Node node, final MutableTruffleString.AsMutableTruffleStringNode truffleStringNode) {
+        return wideStringProfile.profile(node, NativeObject.needsWideString(value)) ? asWideString(value) : asByteString(value, truffleStringNode);
     }
 
     public PointersObject asPoint(final AbstractPointersObjectWriteNode writeNode, final Node inlineTarget, final Object xPos, final Object yPos) {
