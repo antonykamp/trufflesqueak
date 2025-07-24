@@ -101,10 +101,10 @@ def read_and_parse_compilation_statistics(filename):
         result_for_tier = {}
         compilation_time_match_for_tier = re.search(r'sum=\s+(\d+),\s+min=\s+(\d+),\s+average=\s+(\d+\.\d+),\s+max=\s+(\d+)', compilation_time_lines[i])
         if compilation_time_match_for_tier:
-            result_for_tier["compilation_time_sum"] = int(compilation_time_match_for_tier.group(1))
-            result_for_tier["compilation_time_min"] = int(compilation_time_match_for_tier.group(2))
-            result_for_tier["compilation_time_average"] = float(compilation_time_match_for_tier.group(3))
-            result_for_tier["compilation_time_max"] = int(compilation_time_match_for_tier.group(4))
+            result_for_tier["compilation_time_sum_us"] = int(compilation_time_match_for_tier.group(1))
+            result_for_tier["compilation_time_min_us"] = int(compilation_time_match_for_tier.group(2))
+            result_for_tier["compilation_time_average_us"] = float(compilation_time_match_for_tier.group(3))
+            result_for_tier["compilation_time_max_us"] = int(compilation_time_match_for_tier.group(4))
 
         code_size_match_for_tier = re.search(r'sum=\s+(\d+),\s+min=\s+(\d+),\s+average=\s+(\d+\.\d+),\s+max=\s+(\d+)', code_size_lines[i])
         if code_size_match_for_tier:
@@ -130,7 +130,8 @@ if args.summary:
     compilation_summary_2 = read_and_parse_compilation_statistics(args.log_file_compare_target)
 
     # OUTPUT AS CSV
-    summary_diffs_output_path = args.outputDir + "/summary_diffs.csv" if args.outputDir is not None else "summary_diffs.csv"
+    summary_filename = "summary_diffs.csv"
+    summary_diffs_output_path = f"{args.outputDir}/{summary_filename}" if args.outputDir is not None else summary_filename
     with open(summary_diffs_output_path, 'w+', newline='') as summary_diffs_csv_file:
         writer = csv.writer(summary_diffs_csv_file)
         # Header
@@ -147,7 +148,7 @@ if args.summary:
             if tier_present_in_1 is False or tier_present_in_2 is False:
                 # Tier not present in one of traces -> skip comparison
                 continue
-            for metric in list(compilation_summary_1[tier].keys()):
+            for metric in compilation_summary_1[tier].keys():
                 writer.writerow([f'{metric} (tier {tier})', compilation_summary_1[tier][metric], compilation_summary_2[tier][metric], compilation_summary_2[tier][metric] - compilation_summary_1[tier][metric] ])
 else:
     logger.info("# Analysis of summary statistics skipped")
@@ -216,10 +217,10 @@ invalidated_methods_1 = [method for method in trace_log_1 if method["compilation
 invalidated_methods_2 = [method for method in trace_log_2 if method["compilation_state"] == "invalidated"]
 
 # Indicate new methods getting compiled
-new_compiled_methods = [method for method in compiled_methods_2 if method["method"] not in list(map(lambda method: method["method"], compiled_methods_1))]
+new_compiled_methods = [method for method in compiled_methods_2 if method["method"] not in [method_1["method"] for method_1 in compiled_methods_1]]
 
 # Indicate methods no longer getting compiled
-no_longer_compiled = [method for method in compiled_methods_1 if method["method"] not in list(map(lambda method: method["method"], compiled_methods_2))]
+no_longer_compiled = [method for method in compiled_methods_1 if method["method"] not in [method_2["method"] for method_2 in compiled_methods_2]]
 
 #####
 
@@ -231,12 +232,12 @@ if args.positional_shifts:
     logger.info("# Positional shifts in compilation traces\n")
     seen_indexes_in_2 = {}
     for index_1, method in enumerate(compiled_methods_1):
-      if method["method"] in list(map(lambda method: method["method"], no_longer_compiled)):
+      if method["method"] in [no_longer_compiled_method["method"] for no_longer_compiled_method in no_longer_compiled]:
         logger.info("---")
         logger.info(method["method"])
         logger.info("is no longer compiled in the second trace")
         continue
-      if method["method"] in list(map(lambda method: method["method"], new_compiled_methods)):
+      if method["method"] in [new_compiled_method["method"] for new_compiled_method in new_compiled_methods]:
         logger.info("---")
         logger.info(method["method"])
         logger.info("is a new compilation target in the second trace")
@@ -246,7 +247,7 @@ if args.positional_shifts:
       # Use the last seen index_2
       start = seen_indexes_in_2_for_method[-1 ] if len(seen_indexes_in_2_for_method) > 0 else -1
       try:
-        index_2 = list(map(lambda method: method["method"], compiled_methods_2)).index(method["method"], start + 1)
+        index_2 = [method_2["method"] for method_2 in compiled_methods_2].index(method["method"], start + 1)
       except ValueError:
         continue
       # Mark this index in 2 as seen in order to avoid false comparisons of e.g. the second occurence in trace 1 with the first in trace 2
@@ -270,7 +271,8 @@ if args.positional_shifts:
         })
 
     # OUTPUT AS CSV
-    shifts_output_path = args.outputDir + "/shifts.csv" if args.outputDir is not None else "shifts.csv"
+    shifts_filename = "shifts.csv"
+    shifts_output_path = f"{args.outputDir}/{shifts_filename}" if args.outputDir is not None else shifts_filename
     with open(shifts_output_path, 'w+', newline='') as shifts_csv_file:
         writer = csv.writer(shifts_csv_file)
         writer.writerow(['method_name', 'compilation_occurence', 'compilation_tier','positional_shift'])
@@ -297,10 +299,10 @@ def analyze_diffs(methods_from_1, methods_from_2):
       occurences_for_method = (occurences_dict[method_1["method"]] if method_1["method"] in occurences_dict else 0) + 1
       occurences_dict[method_1["method"]] = occurences_for_method
 
-      if method_1["method"] in list(map(lambda method : method["method"], methods_from_2)):
+      if method_1["method"] in [method_2["method"] for method_2 in methods_from_2]:
         method_2 = None
         iter_in_2 = (method_2 for method_2 in methods_from_2 if method_2["method"] == method_1["method"])
-        for i in range(0, occurences_for_method):
+        for _ in range(0, occurences_for_method):
           method_2 = next(iter_in_2, None)
           
         if method_2 is None:
@@ -334,7 +336,7 @@ def analyze_diffs(methods_from_1, methods_from_2):
             "AST_size_diff": AST_size_diff,
             "inlined_diff": inlined_diff,
             "not_inlined_diff": not_inlined_diff,
-            "compilation_time_diff": compilation_time_diff,
+            "compilation_time_diff_ms": compilation_time_diff,
           })
         if code_size_diff != 0:
           logger.info("Code size difference: " + str(code_size_diff))
@@ -360,12 +362,13 @@ analyze_diffs(compiled_methods_1_tier_2, compiled_methods_2_tier_2)
     
 # OUTPUT AS CSV (all diffs)
 if args.diffs:
-    diffs_output_path = args.outputDir + "/diffs.csv" if args.outputDir is not None else "diffs.csv"
+    diffs_filename = "diffs.csv"
+    diffs_output_path = f"{args.outputDir}/{diffs_filename}" if args.outputDir is not None else diffs_filename
     with open(diffs_output_path, 'w+', newline='') as diff_csv_file:
         writer = csv.writer(diff_csv_file)
-        writer.writerow(['method_name', 'compilation_occurence', 'compilation_tier','code_size_diff','AST_size_diff','inlined_diff','not_inlined_diff','compilation_time_diff'])
+        writer.writerow(['method_name', 'compilation_occurence', 'compilation_tier','code_size_diff','AST_size_diff','inlined_diff','not_inlined_diff','compilation_time_diff_ms'])
         for method in diff_list:
-            writer.writerow([method["method_name"], method["compilation_occurence"], method["compilation_tier"], method["code_size_diff"], method["AST_size_diff"], method["inlined_diff"], method["not_inlined_diff"], method["compilation_time_diff"]])
+            writer.writerow([method["method_name"], method["compilation_occurence"], method["compilation_tier"], method["code_size_diff"], method["AST_size_diff"], method["inlined_diff"], method["not_inlined_diff"], method["compilation_time_diff_ms"]])
 else:
    logger.info("\n # Output of all diffs skipped\n")
 
@@ -382,9 +385,9 @@ if args.metric is not None:
         filtered_diff_list = [method_diff for method_diff in diff_list if method_diff['code_size_diff'] != 0]
         specific_diff_list = sorted(filtered_diff_list, key=lambda method_diff : method_diff['code_size_diff'])
     elif args.metric == 'compilation_time':
-        relevant_metric_columns.append('compilation_time_diff')
-        filtered_diff_list = [method_diff for method_diff in diff_list if method_diff['compilation_time_diff'] != 0]
-        specific_diff_list = sorted(filtered_diff_list, key=lambda method_diff : method_diff['compilation_time_diff'])
+        relevant_metric_columns.append('compilation_time_diff_ms')
+        filtered_diff_list = [method_diff for method_diff in diff_list if method_diff['compilation_time_diff_ms'] != 0]
+        specific_diff_list = sorted(filtered_diff_list, key=lambda method_diff : method_diff['compilation_time_diff_ms'])
     elif args.metric == 'inlining':
         relevant_metric_columns.append('inlined_diff')
         relevant_metric_columns.append('not_inlined_diff')
@@ -392,10 +395,11 @@ if args.metric is not None:
         specific_diff_list = sorted(filtered_diff_list, key=lambda method_diff : (method_diff['inlined_diff'], method_diff['not_inlined_diff']))
 
     common_csv_columns = ['method_name', 'compilation_occurence', 'compilation_tier']
-    diffs_output_path = args.outputDir + f"/diffs_{args.metric}.csv" if args.outputDir is not None else f"diffs_{args.metric}.csv"
-    with open(diffs_output_path, 'w+', newline='') as diff_csv_file:
-        writer = csv.writer(diff_csv_file)
-        writer.writerow(common_csv_columns + [column for column in relevant_metric_columns])
+    metric_diffs_filename = f"diffs_{args.metric}.csv"
+    metric_diffs_output_path = f"{args.outputDir}/{metric_diffs_filename}" if args.outputDir is not None else metric_diffs_filename
+    with open(metric_diffs_output_path, 'w+', newline='') as metric_diff_csv_file:
+        writer = csv.writer(metric_diff_csv_file)
+        writer.writerow(common_csv_columns + relevant_metric_columns)
         for method in specific_diff_list:
             writer.writerow([method[column] for column in common_csv_columns] + [method[column] for column in relevant_metric_columns])
 
@@ -418,7 +422,7 @@ def get_color_by_metric(line):
         # Only look for actual compilations (no deopts or invalidations
         return default 
     
-    if method["method"] not in list(map(lambda method_diff : method_diff["method_name"], diff_list)):
+    if method["method"] not in [method_diff["method_name"] for method_diff in diff_list]:
         # No diffs at all --> no special color
         return default
         
@@ -457,32 +461,6 @@ def get_color_by_metric(line):
     else:
         return default
 
-    # OUTDATED COLORING BASED ON CODE_SIZE & COMPILATION_TIME
-    
-    # if match_in_diff_list == None:
-        # # No match 
-        # return default
-    # elif match_in_diff_list["code_size_diff"] < 0 and match_in_diff_list["compilation_time_diff"] < 0:
-        # # Decrease in both metrics => the best case
-        # return "green"
-    # elif (match_in_diff_list["code_size_diff"] < 0 and match_in_diff_list["compilation_time_diff"] == 0) or (match_in_diff_list["code_size_diff"] == 0 and match_in_diff_list["compilation_time_diff"] < 0):
-        # # Decrease in one metric while the other stayed consistent, good but it could be better :D
-        # return "lightgreen"
-        # #return default
-    # elif (match_in_diff_list["code_size_diff"] > 0 and match_in_diff_list["compilation_time_diff"] < 0) or (match_in_diff_list["code_size_diff"] < 0 and match_in_diff_list["compilation_time_diff"] > 0):
-        # # Mixed signals as one metric increased, one decreased.
-        # return "khaki"
-        # #return default
-    # elif (match_in_diff_list["code_size_diff"] > 0 and match_in_diff_list["compilation_time_diff"] == 0) or (match_in_diff_list["code_size_diff"] == 0 and match_in_diff_list["compilation_time_diff"] > 0):
-        # # Increase in one metric while the other stayed consistent, bad but not that it could be worse :D
-        # return "lightsalmon"
-        # #return default
-    # elif match_in_diff_list["code_size_diff"] > 0 and match_in_diff_list["compilation_time_diff"] > 0:
-        # # Increase in both metrics => worst case
-        # return "red"
-    # else:
-        # return default
-        
 def get_font_weight(line):
     method = parse_trace_line(line)
     default = "normal"  # default font weight
@@ -495,7 +473,7 @@ def get_font_weight(line):
         # Only look for actual compilations (no deopts or invalidations)
         return default 
     
-    if method["method"] not in list(map(lambda method : method["method"], new_compiled_methods)):
+    if method["method"] not in [new_compiled_method["method"] for new_compiled_method in new_compiled_methods]:
         # No new method -> normal font weight
         return default   
 
@@ -548,11 +526,12 @@ def convert_log_to_html(log_path, output_path, converter_function, html_title):
         f.write(html_content)
 
 if args.metric is not None:
-   output_path = args.outputDir + f'/target_log_colored_by_{args.metric}.html' if args.outputDir is not None else f'target_log_colored_by_{args.metric}.html'
-   html_title = f"Target compilation trace colored by {args.metric}"
-   convert_log_to_html(args.log_file_compare_target, output_path, line_to_html_by_metric, html_title)
+    html_filename = f'/target_log_colored_by_{args.metric}.html'
+    output_path = f"{args.outputDir}/{html_filename}" if args.outputDir is not None else html_filename
+    html_title = f"Target compilation trace colored by {args.metric}"
+    convert_log_to_html(args.log_file_compare_target, output_path, line_to_html_by_metric, html_title)
 else:
-   logger.info("\n # Colorization of target logfile skipped as no metric was specified\n")
+    logger.info("\n # Colorization of target logfile skipped as no metric was specified\n")
 
 #####
 
@@ -596,10 +575,11 @@ def gather_and_output_filtered_method_counts(safe_filter_name):
     counts_in_trace_log_1 = count_occurences_of_filtered_method(trace_log_1)
     counts_in_trace_log_2 = count_occurences_of_filtered_method(trace_log_2)
 
-    count_output_path = args.outputDir + f'/analysis_{safe_filter_name}.csv' if args.outputDir is not None else f'analysis_{safe_filter_name}.csv'
+    count_filename = f'/analysis_{safe_filter_name}.csv'
+    count_output_path = f"{args.outputDir}/{count_filename}" if args.outputDir is not None else count_filename
     with open(count_output_path, "w+", newline='') as count_csv_file:
         writer = csv.writer(count_csv_file)
-        writer.writerow([args.filter.strip(), 'value_in_base', 'value_in_target_file', 'diff'])
+        writer.writerow([args.filter.strip(), 'value_in_base_file', 'value_in_target_file', 'diff'])
         writer.writerow(['total occurrences', counts_in_trace_log_1["total_occurences"], counts_in_trace_log_2["total_occurences"], counts_in_trace_log_2["total_occurences"] - counts_in_trace_log_1["total_occurences"]])
         writer.writerow(['total compilations', counts_in_trace_log_1["total_compilations"], counts_in_trace_log_2["total_compilations"], counts_in_trace_log_2["total_compilations"] - counts_in_trace_log_1["total_compilations"]])
         writer.writerow(['total compilations (tier 1)', counts_in_trace_log_1["compilation_occurences_tier_1"], counts_in_trace_log_2["compilation_occurences_tier_1"], counts_in_trace_log_2["compilation_occurences_tier_1"] - counts_in_trace_log_1["compilation_occurences_tier_1"]])
@@ -608,19 +588,21 @@ def gather_and_output_filtered_method_counts(safe_filter_name):
         writer.writerow(['total invalidations', counts_in_trace_log_1["total_invalidations"], counts_in_trace_log_2["total_invalidations"], counts_in_trace_log_2["total_invalidations"] - counts_in_trace_log_1["total_invalidations"]])
 
 if args.filter is not None:
-   # For path building replace ":" and ">>" in method names (avoid file system errors)
-   safe_filter_name = args.filter.replace(">>", "").replace(":", "")
+    # For path building replace ":" and ">>" in method names (avoid file system errors)
+    safe_filter_name = args.filter.replace(">>", "").replace(":", "")
 
     # Color base log by method name filter
-   base_output_path = args.outputDir + f'/base_log_colored_by_{safe_filter_name}.html' if args.outputDir is not None else f'base_log_colored_by_{safe_filter_name}.html'
-   base_html_title = f"Base compilation trace colored by method {args.filter}"
-   convert_log_to_html(args.log_file_compare_base, base_output_path, line_to_html_by_method_name, base_html_title)
+    base_filename = f'/base_log_colored_by_{safe_filter_name}.html'
+    base_output_path = f"{args.outputDir}/{base_filename}" if args.outputDir is not None else base_filename
+    base_html_title = f"Base compilation trace colored by method {args.filter}"
+    convert_log_to_html(args.log_file_compare_base, base_output_path, line_to_html_by_method_name, base_html_title)
 
-   # Color target log by method name filter
-   target_output_path = args.outputDir + f'/target_log_colored_by_{safe_filter_name}.html' if args.outputDir is not None else f'target_log_colored_by_{safe_filter_name}.html'
-   target_html_title = f"Target compilation trace colored by method {args.filter}"
-   convert_log_to_html(args.log_file_compare_target, target_output_path, line_to_html_by_method_name, target_html_title)
+    # Color target log by method name filter
+    target_filename = f'/target_log_colored_by_{safe_filter_name}.html'
+    target_output_path = f"{args.outputDir}/{target_filename}" if args.outputDir is not None else target_filename
+    target_html_title = f"Target compilation trace colored by method {args.filter}"
+    convert_log_to_html(args.log_file_compare_target, target_output_path, line_to_html_by_method_name, target_html_title)
 
-   gather_and_output_filtered_method_counts(safe_filter_name)
+    gather_and_output_filtered_method_counts(safe_filter_name)
 else:
-   logger.info("\n # Analysis of filtered method skipped as no filter was specified\n")
+    logger.info("\n # Analysis of filtered method skipped as no filter was specified\n")
