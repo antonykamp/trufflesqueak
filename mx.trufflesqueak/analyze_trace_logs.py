@@ -162,7 +162,8 @@ def parse_trace_line(line):
     id_method_match = re.search(r'id=(\d+)\s+([^\|]+)', line)
     if id_method_match:
         result["id"] = int(id_method_match.group(1))
-        result["method"] = id_method_match.group(2).strip()
+        # Remove >> characters as these are somehow not stabilly present
+        result["method"] = id_method_match.group(2).strip().replace(">>", "")
 
     # Extract and normalize compilation_state
     state_match = re.search(r'\[engine\]\s+opt\s+(done|inval\.|deopt)', line)
